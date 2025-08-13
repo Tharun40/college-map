@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
-
+import { Mic, Loader2 } from "lucide-react";
 const Index = () => {
   const { data: departments = [] } = useQuery<Department[]>({ queryKey: ["departments"], queryFn: getDepartments });
 
@@ -20,11 +20,55 @@ const Index = () => {
   const [staffOpen, setStaffOpen] = useState(false);
   const [fromId, setFromId] = useState<string | undefined>();
   const [toId, setToId] = useState<string | undefined>();
+  const [recording, setRecording] = useState(false);
+
+  const record3s = async (): Promise<Blob> => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+    const chunks: BlobPart[] = [];
+
+    recorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) chunks.push(e.data);
+    };
+
+    const stopped = new Promise<void>((resolve) => {
+      recorder.onstop = () => resolve();
+    });
+
+    recorder.start();
+    setTimeout(() => recorder.stop(), 3000);
+    await stopped;
+    stream.getTracks().forEach((t) => t.stop());
+
+    return new Blob(chunks, { type: 'audio/webm' });
+  };
+
+  const startVoiceSearch = async () => {
+    try {
+      setRecording(true);
+      const blob = await record3s();
+      const form = new FormData();
+      form.append('audio', blob, 'audio.webm');
+
+      const resp = await fetch('http://localhost:5000/stt', {
+        method: 'POST',
+        body: form,
+      });
+
+      const data = await resp.json();
+      if (data?.text) {
+        setSearch(data.text);
+      }
+    } catch (err) {
+      console.error('Voice search failed', err);
+    } finally {
+      setRecording(false);
+    }
+  };
 
   useEffect(() => {
     document.title = "College Navigator — Campus Map & Departments";
   }, []);
-
   const filtered = useMemo(() => {
     return departments.filter((d) => {
       const matchType = type === "All" || d.type === type;
@@ -60,7 +104,26 @@ const Index = () => {
           <p className="text-sm text-muted-foreground">Find your way around campus</p>
         </div>
         <div className="flex items-center gap-2 w-full max-w-xl">
-          <Input placeholder="Search departments, blocks" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
+          <div className="relative w-full">
+            <Input
+              placeholder="Search departments, blocks"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search"
+              className="pr-10"
+            />
+            <button
+              type="button"
+              onClick={startVoiceSearch}
+              disabled={recording}
+              aria-label={recording ? 'Listening…' : 'Voice search'}
+              title={recording ? 'Listening…' : 'Voice search'}
+              className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+            >
+              {recording ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
+              <span className="sr-only">Voice search</span>
+            </button>
+          </div>
           <Select value={type} onValueChange={(v) => setType(v as any)}>
             <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Departments" /></SelectTrigger>
             <SelectContent>
